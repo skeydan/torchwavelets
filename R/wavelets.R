@@ -27,12 +27,14 @@
 #' @importFrom torch torch_exp
 #' @param w0 the non-dimensional frequency constant. If this is set too low,
 #' then the wavelet does not sample very well: a value higher than 5 should be ok.
-#' Terrence and Compo set it to 6.
+#' Torrence and Compo set it to 6.
 #'
 #' @export
 Morlet <- R6::R6Class(
   "Morlet",
   public = list(
+    #' @field is_complex whether the wavelet representation in the time domain is complex
+    is_complex = TRUE,
     #' @field w0 the non-dimensional frequency constant.
     w0 = NULL,
     #' @field C_d value of C_d from TC98
@@ -77,9 +79,9 @@ Morlet <- R6::R6Class(
     frequency = function(w, s = 1) {
       x <- w * s
       # Heaviside mock
-      Hw <- if (w <= 0) 0 else 1
+      Hw <- torch_where(w < 0, 0, 1)
       f <- pi^-.25 * Hw * torch_exp((-(x - self$w0)^2) / 2)
-      as.numeric(f)
+      f
     },
     #' @description The e-folding time for the autocorrelation of wavelet
     #' power at each scale, i.e. the timescale over which an edge
@@ -113,10 +115,14 @@ Morlet <- R6::R6Class(
 #'
 #' @param m the order of the derivative
 #'
+#' @importFrom calculus hermite
+#'
 #' @export
 DerivativeOfGaussian <- R6::R6Class(
   "Derivative of Gaussian",
   public = list(
+    #' @field is_complex whether the wavelet representation in the time domain is complex
+    is_complex = FALSE,
     #' @field m the order of the derivative
     m = NULL,
     #' @field C_d value of C_d from TC98
@@ -164,7 +170,7 @@ DerivativeOfGaussian <- R6::R6Class(
       const = -torch_complex(0, 1)^m / gamma(m + 0.5)^.5
       output <- x^m * torch_exp(-x^2 / 2)
       output <- output * const
-      as.numeric(output)
+      output
     },
     #' @description The e-folding time for the autocorrelation of wavelet
     #' power at each scale, i.e. the timescale over which an edge
@@ -185,10 +191,15 @@ DerivativeOfGaussian <- R6::R6Class(
 #'
 #' @param m the order
 #'
+#' @importFrom torch torch_float32
+#' @importFrom torch torch_float64
+#'
 #' @export
 Paul <- R6::R6Class(
   "Paul",
   public = list(
+    #' @field is_complex whether the wavelet representation in the time domain is complex
+    is_complex = TRUE,
     #' @field m the order of the derivative
     m = NULL,
     #' @description save `m`
@@ -226,13 +237,12 @@ Paul <- R6::R6Class(
     frequency = function(w, s = 1) {
       m <- self$m
       x <- w * s
-      # Heaviside mock
+      x <- x$to(dtype = torch_float64())
       Hw <- 0.5 * (sign(x) + 1)
-      # pre-factor
+      functional_form <- Hw * x^m * torch_exp(-x)
       const <- 2^m / (m * factorial(2 * m - 1))^ .5
-      functional_form <- Hw * (x)^m * torch_exp(-x)
       output <- const * functional_form
-      as.numeric(output)
+      output$to(dtype = torch_float32())
     },
     #' @description the e-folding time for the autocorrelation of wavelet
     #' power at each scale, i.e. the time scale over which an edge
